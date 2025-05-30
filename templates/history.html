@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Lịch Sử Quyết Định{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/history.css') }}">
+{% endblock %}
+
+{% block content %}
+<h2>
+    <i class="fas fa-history"></i> Lịch Sử Quyết Định
+    {% if decisions %}
+    <div class="page-actions">
+        <a href="{{ url_for('export_excel_all') }}" class="button export">
+            <i class="fas fa-file-excel"></i> Xuất Tất Cả Ra Excel
+        </a>
+    </div>
+    {% endif %}
+</h2>
+
+{% if decisions %}
+<div class="history-list">
+    {% for decision in decisions %}
+    <div class="history-item">
+        <div class="history-header">
+            <h3>
+                <i class="fas fa-calendar-alt"></i> 
+                {% if decision.decision_name %}
+                    {{ decision.decision_name }}
+                {% else %}
+                    Quyết định #{{ decision.decision_id }}
+                {% endif %}
+                <span class="date">{{ decision.creation_date.strftime('%d/%m/%Y %H:%M:%S') if decision.creation_date else 'N/A' }}</span>
+            </h3>
+            <div class="history-actions">
+                <a href="{{ url_for('decision_results_page', decision_id=decision.decision_id) }}" class="button">
+                    <i class="fas fa-eye"></i> Xem Chi Tiết
+                </a>
+                <a href="{{ url_for('export_excel_history', decision_id=decision.decision_id) }}" class="button export">
+                    <i class="fas fa-file-excel"></i> Xuất Excel
+                </a>
+                <form method="POST" action="{{ url_for('delete_history_entry', decision_id=decision.decision_id) }}" style="display:inline;" onsubmit="return confirm('Bạn có chắc chắn muốn xóa quyết định này?');">
+                    <button type="submit" class="button delete">
+                        <i class="fas fa-trash-alt"></i> Xóa
+                    </button>
+                </form>
+            </div>
+        </div>
+        <div class="history-content">
+            {% if decision.description %}
+            <p>
+                <i class="fas fa-info-circle"></i>
+                <strong>Mô tả:</strong>
+                <span class="description">{{ decision.description }}</span>
+            </p>
+            {% endif %}
+            {% if decision.alternatives %}
+            <p>
+                <i class="fas fa-trophy"></i>
+                <strong>Phương án được đề xuất:</strong>
+                <span class="score">{{ decision.alternatives[0].alternative_name if decision.alternatives|length > 0 else 'N/A' }}</span>
+            </p>
+            <p>
+                <i class="fas fa-chart-line"></i>
+                <strong>Điểm số:</strong>
+                <span class="score">{{ "%.4f"|format(decision.alternatives[0].overall_score) if decision.alternatives|length > 0 and decision.alternatives[0].overall_score is not none else 'N/A' }}</span>
+            </p>
+            {% endif %}
+            <p>
+                <i class="fas fa-check-circle"></i>
+                <strong>Tỷ số nhất quán (CR):</strong>
+                <span class="status {% if decision.criteria_cr is not none and decision.criteria_cr <= 0.1 %}success{% else %}error{% endif %}">
+                    {{ "%.4f"|format(decision.criteria_cr) if decision.criteria_cr is not none else 'N/A' }}
+                    {% if decision.criteria_cr is not none %}
+                        {% if decision.criteria_cr <= 0.1 %}
+                        <i class="fas fa-check"></i>
+                        {% else %}
+                        <i class="fas fa-times"></i>
+                        {% endif %}
+                    {% endif %}
+                </span>
+            </p>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <i class="fas fa-folder-open"></i>
+    <p>Chưa có quyết định nào được lưu.</p>
+    <a href="{{ url_for('index') }}" class="button">
+        <i class="fas fa-plus"></i> Tạo Quyết Định Mới
+    </a>
+</div>
+{% endif %}
+{% endblock %}

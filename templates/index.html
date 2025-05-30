@@ -1,0 +1,355 @@
+{% extends "base.html" %}
+{% block title %}Phân Tích AHP Lựa Chọn Phương Tiện Di Chuyển Trong Nội Thành TPHCM{% endblock %}
+
+{% block content %}
+<form method="POST" id="ahpForm" action="{{ url_for('index') }}">
+    <h2><i class="fas fa-list-ol"></i> Bước 1: So sánh cặp các Tiêu chí</h2>
+    <p><i class="fas fa-info-circle"></i> Đánh giá mức độ quan trọng tương đối giữa các cặp tiêu chí theo thang điểm từ 1 đến 9 (1: Ngang nhau, 9: Cực kỳ quan trọng hơn).</p>
+    <table class="comparison-matrix">
+        <thead>
+            <tr>
+                <th>Tiêu chí</th>
+                {% for crit_name in criteria_names %}
+                <th>{{ crit_name }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for i in range(num_criteria) %}
+            <tr>
+                <td><strong>{{ criteria_names[i] }}</strong></td>
+                {% for j in range(num_criteria) %}
+                <td>
+                    {% if i == j %}
+                        <input type="text" value="1" readonly class="readonly-input">
+                    {% elif i < j %}
+                        <input type="number" name="compare_{{i}}_{{j}}" min="1" max="9" step="1" 
+                               value="{{ submitted_data.get('compare_' + i|string + '_' + j|string, (criteria_results.comparison_matrix[i][j] if criteria_results and criteria_results.comparison_matrix else '')) }}" 
+                               required class="editable-input criteria-compare-input">
+                    {% else %}
+                        <input type="text" id="auto_compare_{{i}}_{{j}}" readonly class="readonly-input auto-filled"
+                               value="{{ (1 / (criteria_results.comparison_matrix[j][i]|float(1)))|round(4) if criteria_results and criteria_results.comparison_matrix and criteria_results.comparison_matrix[j][i] and criteria_results.comparison_matrix[j][i] != 0 else '' }}">
+                    {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div style="margin-top: 15px;">
+        <button type="submit" name="action" value="calculate_criteria" class="button">
+            <i class="fas fa-calculator"></i> Tính Trọng Số & Kiểm Tra Nhất Quán Tiêu Chí
+        </button>
+    </div>
+
+    {% if criteria_results %}
+    <div id="criteriaResultsArea" style="margin-top: 30px;">
+        <h3 class="table-title"><i class="fas fa-check-circle"></i> Kết quả kiểm tra tính nhất quán Tiêu chí</h3>
+        <p>Eigenvalue lớn nhất (λmax): {{ "%.4f"|format(criteria_results.lambda_max) if criteria_results.lambda_max is not none }}</p>
+        <p>Chỉ số nhất quán (CI): {{ "%.4f"|format(criteria_results.ci) if criteria_results.ci is not none }}</p>
+        <p>Tỷ lệ nhất quán (CR): {{ "%.4f"|format(criteria_results.cr) if criteria_results.cr is not none }}
+            <span style="font-weight: bold; color: {% if criteria_results.is_consistent %}green{% else %}red{% endif %};">
+                ({% if criteria_results.is_consistent %}Ma trận nhất quán. Trọng số đáng tin cậy.{% else %}Ma trận KHÔNG nhất quán! Cần xem lại đánh giá ở Bước 1.{% endif %})
+            </span>
+        </p>
+        <h3 class="table-title"><i class="fas fa-balance-scale"></i> Trọng số các Tiêu chí (Vector ưu tiên)</h3>
+        <table><thead><tr><th>Tiêu chí</th><th>Trọng số</th></tr></thead><tbody>
+            {% for i in range(criteria_results.criteria_names|length) %}
+            <tr><td>{{ criteria_results.criteria_names[i] }}</td><td>{{ "%.4f"|format(criteria_results.weights[i]) }}</td></tr>
+            {% endfor %}
+        </tbody></table>
+        {% if criteria_results.normalized_matrix_by_col %}
+        <h3 class="table-title"><i class="fas fa-table"></i> Ma trận chuẩn hóa theo cột (Tham khảo)</h3>
+        <table class="comparison-matrix"><thead><tr><th>Tiêu chí</th>{% for cn in criteria_results.criteria_names %}<th>{{ cn }}</th>{% endfor %}</tr></thead><tbody>
+        {% for i in range(criteria_results.criteria_names|length) %}<tr><td><strong>{{ criteria_results.criteria_names[i] }}</strong></td>
+        {% for j in range(criteria_results.criteria_names|length) %}<td>{{ "%.4f"|format(criteria_results.normalized_matrix_by_col[i][j]) }}</td>{% endfor %}</tr>{% endfor %}
+        </tbody></table>
+        {% endif %}
+    </div><hr>
+    {% endif %}
+
+    <div id="alternativesSection" {% if not criteria_results or not criteria_results.is_consistent %}style="display:none;"{% endif %}>
+        <h2><i class="fas fa-tasks"></i> Bước 2: Nhập thông tin Phương án và Đánh giá</h2>
+        {% if criteria_results and not criteria_results.is_consistent %}
+        <div class="error-message" style="color: red; margin-bottom: 15px;">
+            <i class="fas fa-exclamation-triangle"></i> Vui lòng điều chỉnh ma trận so sánh ở Bước 1 để đạt tính nhất quán (CR ≤ 0.1) trước khi tiếp tục Bước 2.
+        </div>
+        {% endif %}
+        <div class="form-group">
+            <label for="num_alternatives">Chọn số lượng Phương án (3-5):</label>
+            <select name="num_alternatives" id="num_alternatives" {% if not criteria_results or not criteria_results.is_consistent %}disabled{% endif %}>
+                {% set current_num_alts_val = (submitted_data.get('num_alternatives')|int if submitted_data and submitted_data.get('num_alternatives') else (ahp_final_results.num_alternatives_processed if ahp_final_results else 3)) %}
+                <option value="3" {% if current_num_alts_val == 3 %}selected{% endif %}>3 Phương án</option>
+                <option value="4" {% if current_num_alts_val == 4 %}selected{% endif %}>4 Phương án</option>
+                <option value="5" {% if current_num_alts_val == 5 %}selected{% endif %}>5 Phương án</option>
+            </select>
+        </div>
+        <table id="alternativesTable">
+            <thead>
+                <tr>
+                    <th>Tên Phương án</th>
+                    {% for crit_name in criteria_names %}
+                    <th>{{ crit_name }}<br>
+                        <select name="crit_type_{{ loop.index0 }}" class="crit-type-select">
+                            {% set selected_crit_type_val = (submitted_data.get('crit_type_' + loop.index0|string) if submitted_data else (ahp_final_results.criteria_types[loop.index0] if ahp_final_results and ahp_final_results.criteria_types and loop.index0 < ahp_final_results.criteria_types|length else ('cost' if loop.index0 <= 1 else 'benefit'))) %}
+                            <option value="benefit" {% if selected_crit_type_val == 'benefit' %}selected{% endif %}>Benefit</option>
+                            <option value="cost" {% if selected_crit_type_val == 'cost' %}selected{% endif %}>Cost</option>
+                        </select>
+                    </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody id="alternativesTbody"></tbody>
+        </table>
+        <div style="margin-top: 20px;">
+            <button type="submit" name="action" value="calculate_full_ahp" class="button" onclick="setAlternativeInputsRequired(true)" {% if not criteria_results or not criteria_results.is_consistent %}disabled{% endif %}>
+                <i class="fas fa-cogs"></i> Tính Toán AHP Hoàn Chỉnh
+            </button>
+            <button type="button" onclick="submitForExcel()" class="button export" {% if not criteria_results or not criteria_results.is_consistent %}disabled{% endif %}>
+                <i class="fas fa-file-excel"></i> Xuất Excel
+            </button>
+        </div>
+    </div>
+</form>
+<hr>
+
+{% if ahp_final_results %}
+<div id="finalResultsArea">
+    <h2 class="table-title"><i class="fas fa-chart-bar"></i> Kết Quả Phân Tích AHP Hoàn Chỉnh</h2>
+    <p>Tỷ số nhất quán (CR) Tiêu chí: {{ "%.4f"|format(ahp_final_results.cr) }} 
+        <span style="font-weight: bold;color:{%if ahp_final_results.cr <=0.1%}green{%else%}red{%endif%};">({%if ahp_final_results.cr <=0.1%}Đạt{%else%}KHÔNG Đạt{%endif%})</span></p>
+    <h3 class="table-title"><i class="fas fa-list-ol"></i> Bảng Kết Quả Chi Tiết Phương Án</h3>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Hạng</th>
+                    <th>Tên Phương án</th>
+                    {% for cn_h in ahp_final_results.criteria_names %}
+                    <th>{{cn_h}}(Gốc)</th>
+                    {% endfor %}
+                    {% for cn_h in ahp_final_results.criteria_names %}
+                    <th>{{cn_h}}(CH)</th>
+                    {% endfor %}
+                    <th>Điểm Tổng Hợp</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for alt in ahp_final_results.ranked_alternatives %}
+                <tr>
+                    <td>{{alt.rank}}</td>
+                    <td>{{alt.name}}</td>
+                    {% for score in alt.raw_scores %}
+                    <td><span class="score-value">{{"%.2f"|format(score)}}</span></td>
+                    {% endfor %}
+                    {% for sn in alt.normalized_scores %}
+                    <td><span class="score-value">{{"%.4f"|format(sn)}}</span></td>
+                    {% endfor %}
+                    <td><strong>{{"%.4f"|format(alt.overall_score)}}</strong></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if ahp_final_results.ranked_alternatives %}
+    <h3 style="color:green;margin-top:15px;">
+        <i class="fas fa-trophy"></i> Đề xuất: {{ahp_final_results.ranked_alternatives[0].name}} 
+        (Điểm: {{"%.4f"|format(ahp_final_results.ranked_alternatives[0].overall_score)}})
+    </h3>
+    {% endif %}
+    <hr>
+    <h2><i class="fas fa-chart-pie"></i> Biểu Đồ Trực Quan</h2><div style="display:flex;justify-content:space-around;flex-wrap:wrap;">
+    <div style="width:45%;min-width:300px;margin-bottom:20px;"><h3>Trọng số Tiêu chí</h3><canvas id="criteriaChartFinal"></canvas></div>
+    <div style="width:45%;min-width:300px;margin-bottom:20px;"><h3>Điểm Phương án</h3><canvas id="alternativesChartFinal"></canvas></div></div>
+</div>
+{% endif %}
+
+<!-- Add back to top button -->
+<button class="back-to-top" id="backToTop" title="Lên đầu trang">
+    <i class="fas fa-arrow-up"></i>
+</button>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const numCriteria = parseInt("{{ num_criteria }}");
+    
+    function updateReciprocalValue(rowIdx, colIdx, inputValue) {
+        const reciprocalElement = document.getElementById(`auto_compare_${colIdx}_${rowIdx}`);
+        if (reciprocalElement) {
+            const numVal = parseInt(inputValue);
+            reciprocalElement.value = (!isNaN(numVal) && numVal >= 1 && numVal <= 9) ? (1 / numVal).toFixed(4) : '';
+        }
+    }
+
+    for (let i = 0; i < numCriteria; i++) {
+        for (let j = i + 1; j < numCriteria; j++) {
+            const el = document.querySelector(`input[name="compare_${i}_${j}"]`);
+            if (el) {
+                el.addEventListener('input', function() { updateReciprocalValue(i, j, this.value); });
+                if (el.value) { updateReciprocalValue(i, j, el.value); }
+            }
+        }
+    }
+    
+    const numAltSelect = document.getElementById('num_alternatives');
+    const altTbody = document.getElementById('alternativesTbody');
+    const critNamesJS = JSON.parse('{{ criteria_names|tojson|safe }}');
+    const submittedJS = JSON.parse('{{ submitted_data|tojson|safe if submitted_data else "{}"|safe }}');
+    const finalResultsJS = JSON.parse('{{ ahp_final_results|tojson|safe if ahp_final_results else "null" }}');
+
+    function updateAlternativeRowsAndInputs(countStr) {
+        const count = parseInt(countStr);
+        if (!altTbody || isNaN(count) || count < 3 || count > 5) {
+            console.error("Lỗi khi cập nhật hàng phương án. Element tbody hoặc count không hợp lệ.");
+            return;
+        }
+        altTbody.innerHTML = '';
+        
+        const isDisabled = {{ 'true' if not criteria_results or not criteria_results.is_consistent else 'false' }};
+        
+        for (let i = 0; i < count; i++) {
+            const row = altTbody.insertRow();
+            const cellName = row.insertCell();
+            
+            let altNameVal = `Phương án ${i + 1}`;
+            if (submittedJS && submittedJS[`alt_name_${i}`] !== undefined) {
+                altNameVal = submittedJS[`alt_name_${i}`];
+            } else if (finalResultsJS && finalResultsJS.ranked_alternatives && i < finalResultsJS.ranked_alternatives.length) {
+                altNameVal = finalResultsJS.ranked_alternatives[i].name;
+            }
+            
+            cellName.innerHTML = `<input type="text" class="alt-input alt-name-input" name="alt_name_${i}" value="${altNameVal}" placeholder="Tên PA ${i+1}" ${isDisabled ? 'disabled' : ''}>`;
+            
+            critNamesJS.forEach((critName, j) => {
+                const cellScore = row.insertCell();
+                let scoreVal = '';
+                if (submittedJS && submittedJS[`score_${i}_${j}`] !== undefined) {
+                    scoreVal = submittedJS[`score_${i}_${j}`];
+                } else if (finalResultsJS && finalResultsJS.ranked_alternatives && i < finalResultsJS.ranked_alternatives.length && 
+                           finalResultsJS.ranked_alternatives[i].raw_scores && j < finalResultsJS.ranked_alternatives[i].raw_scores.length) {
+                    scoreVal = finalResultsJS.ranked_alternatives[i].raw_scores[j];
+                }
+                cellScore.innerHTML = `<input type="number" step="any" min="0" class="alt-input alt-score-input" name="score_${i}_${j}" value="${scoreVal}" placeholder="Điểm" ${isDisabled ? 'disabled' : ''}>`;
+            });
+        }
+    }
+    
+    if (numAltSelect) { 
+        updateAlternativeRowsAndInputs(numAltSelect.value);
+        
+        numAltSelect.addEventListener('change', function() {
+            updateAlternativeRowsAndInputs(this.value);
+        });
+    }
+
+    const altSection = document.getElementById('alternativesSection');
+    {% if criteria_results and criteria_results.is_consistent %}
+        if(altSection) altSection.style.display = 'block';
+    {% elif criteria_results and not criteria_results.is_consistent %}
+        if(altSection) altSection.style.display = 'block'; 
+    {% else %}
+        if(altSection) altSection.style.display = 'none';
+    {% endif %}
+
+    {% if ahp_final_results and ahp_final_results.chart_crit_names %}
+    try {
+        const critChartData = { labels: JSON.parse('{{ ahp_final_results.chart_crit_names|tojson|safe }}'), datasets: [{ label: 'Trọng số Tiêu chí', data: JSON.parse('{{ ahp_final_results.chart_crit_weights|tojson|safe }}'), backgroundColor: ['#FF6384','#36A2EB','#FFCE56','#4BC0C0'], borderColor:['#fff'], borderWidth:1 }]};
+        const critCtx = document.getElementById('criteriaChartFinal')?.getContext('2d');
+        if(critCtx) new Chart(critCtx, {type:'pie', data:critChartData, options:{responsive:true,plugins:{legend:{position:'top'}}}});
+    } catch(e) { console.error("Lỗi vẽ biểu đồ tiêu chí (final):", e); }
+
+    try {
+        const altChartData = { labels: JSON.parse('{{ ahp_final_results.chart_alt_names|tojson|safe }}'), datasets: [{ label: 'Điểm Tổng hợp Phương án', data: JSON.parse('{{ ahp_final_results.chart_alt_scores|tojson|safe }}'), backgroundColor:'#4BC0C0', borderColor:'#30a0a0', borderWidth:1 }]};
+        const altCtx = document.getElementById('alternativesChartFinal')?.getContext('2d');
+        if(altCtx) new Chart(altCtx, {type:'bar', data:altChartData, options:{responsive:true,scales:{y:{beginAtZero:true}}}});
+    } catch(e) { console.error("Lỗi vẽ biểu đồ phương án (final):", e); }
+    {% endif %}
+
+    // Add loading animation
+    const form = document.getElementById('ahpForm');
+    form.addEventListener('submit', function() {
+        document.body.classList.add('loading');
+    });
+
+    // Add tooltip functionality
+    const inputs = document.querySelectorAll('input[type="number"]');
+    inputs.forEach(input => {
+        input.setAttribute('data-tooltip', 'Nhập giá trị từ 1 đến 9');
+    });
+
+    // Add animation for new elements
+    const newElements = document.querySelectorAll('.flash-messages li, #criteriaResultsArea, #finalResultsArea');
+    newElements.forEach(el => {
+        el.style.animation = 'fadeIn 0.5s ease-out';
+    });
+
+    // Back to top functionality
+    const backToTopButton = document.getElementById('backToTop');
+    
+    // Show button when page is scrolled halfway
+    const scrollFunction = () => {
+        const halfPageHeight = document.documentElement.scrollHeight / 2;
+        const currentScroll = window.scrollY + window.innerHeight;
+        
+        if (window.scrollY > halfPageHeight) {
+            backToTopButton.classList.add('visible');
+        } else {
+            backToTopButton.classList.remove('visible');
+        }
+    };
+
+    // Add scroll event listener with debounce
+    let scrollTimeout;
+    window.addEventListener('scroll', () => {
+        if (scrollTimeout) {
+            window.cancelAnimationFrame(scrollTimeout);
+        }
+        scrollTimeout = window.requestAnimationFrame(() => {
+            scrollFunction();
+        });
+    });
+
+    // Smooth scroll to top when button is clicked
+    backToTopButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.scrollTo({
+            top: 0,
+            behavior: 'smooth'
+        });
+    });
+
+    // Initial check for scroll position
+    scrollFunction();
+});
+
+function setAlternativeInputsRequired(isRequired) {
+    const altInputs = document.querySelectorAll('#alternativesTbody .alt-input');
+    altInputs.forEach(input => {
+        if (isRequired) { input.setAttribute('required', 'required'); } 
+        else { input.removeAttribute('required'); }
+    });
+}
+
+const mainForm = document.getElementById('ahpForm');
+if (mainForm) {
+    mainForm.addEventListener('submit', function(event) {
+        const actionButton = document.activeElement; 
+        if (actionButton && actionButton.name === 'action') {
+            if (actionButton.value === 'calculate_full_ahp') { setAlternativeInputsRequired(true); } 
+            else if (actionButton.value === 'calculate_criteria') { setAlternativeInputsRequired(false); }
+        }
+    });
+}
+
+function submitForExcel() {
+    const form = document.getElementById('ahpForm');
+    setAlternativeInputsRequired(false); 
+    form.action = "{{ url_for('export_excel_current') }}"; 
+    form.method = "POST"; 
+    form.submit();
+}
+</script>
+{% endblock %}
